@@ -64,6 +64,9 @@ const mockGroupFetchAllParticipating = mock(async function (this: any) {
 const mockPresenceSubscribe = mock(async function (this: any) {
   return { subscribed: [] };
 });
+const mockRequestPairingCode = mock(async function (this: any) {
+  return "ABCD-1234";
+});
 
 class MockBaileysConnection {
   phoneNumber: string;
@@ -117,9 +120,11 @@ class MockBaileysConnection {
   groupJoinApprovalMode = mockGroupJoinApprovalMode;
   groupFetchAllParticipating = mockGroupFetchAllParticipating;
   presenceSubscribe = mockPresenceSubscribe;
+  requestPairingCode = mockRequestPairingCode;
 }
 
 import {
+  BaileysAlreadyPairedError,
   BaileysConnectionForbiddenError,
   BaileysNotConnectedError,
 } from "@/baileys/connection";
@@ -1174,4 +1179,38 @@ describe("BaileysConnectionsHandler", () => {
       ]);
     });
   });
+
+  describe("#requestPairingCode (guarda de ja pareado)", () => {
+    const phone = "+5511999";
+    const authKey = `@baileys-api:connections:${phone}:authState`;
+
+    it("recusa com BaileysAlreadyPairedError quando o numero ja tem identidade", async () => {
+      // creds.me presente = pareado (o mesmo criterio de isRedisAuthStatePaired).
+      (redis as any).__hashData.set(
+        authKey,
+        new Map([
+          ["creds", JSON.stringify({ me: { id: `${phone}:98@s.whatsapp.net` } })],
+        ]),
+      );
+      mockRequestPairingCode.mockClear();
+
+      await expect(handler.requestPairingCode(phone)).rejects.toThrow(
+        BaileysAlreadyPairedError,
+      );
+      // O ponto do bug: NENHUM codigo pode ser emitido nesse estado.
+      expect(mockRequestPairingCode).not.toHaveBeenCalled();
+    });
+
+    it("emite o codigo quando o numero ainda nao esta pareado", async () => {
+      (redis as any).__hashData.delete(authKey);
+      await handler.connect(phone, defaultOptions);
+      mockRequestPairingCode.mockClear();
+
+      const code = await handler.requestPairingCode(phone);
+
+      expect(code).toBe("ABCD-1234");
+      expect(mockRequestPairingCode).toHaveBeenCalledTimes(1);
+    });
+  });
+
 });

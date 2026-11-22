@@ -1,9 +1,11 @@
 import Elysia, { t } from "elysia";
 import baileys from "@/baileys";
 import {
+  BaileysAlreadyPairedError,
   BaileysConnectionForbiddenError,
   BaileysNotConnectedError,
 } from "@/baileys/connection";
+import { isRedisAuthStatePaired } from "@/baileys/redisAuthState";
 import {
   InvalidNoiseCandidateError,
   mapSessionToCreds,
@@ -147,10 +149,21 @@ const connectionsController = new Elysia({
   )
   .post(
     "/:phoneNumber/pairing-code",
-    async ({ params }) => {
+    async ({ params, set }) => {
       const { phoneNumber } = params;
-      const code = await baileys.requestPairingCode(phoneNumber);
-      return { data: { code } };
+      try {
+        const code = await baileys.requestPairingCode(phoneNumber);
+        return { data: { code } };
+      } catch (e) {
+        // Conflito, nao erro de servidor: o numero ja tem identidade pareada e
+        // emitir codigo aqui corromperia `creds.me`. O chamador deve usar
+        // `DELETE /:phoneNumber` antes de parear de novo.
+        if (e instanceof BaileysAlreadyPairedError) {
+          set.status = 409;
+          return new Response("Phone number is already paired", { status: 409 });
+        }
+        throw e;
+      }
     },
     {
       params: phoneNumberParams,
@@ -159,6 +172,29 @@ const connectionsController = new Elysia({
         responses: {
           200: {
             description: "Pairing code generated",
+          },
+          409: {
+            description:
+              "Conflict — the phone number already has a paired identity. Logout (DELETE) first; emitting a code here would overwrite creds.me and destroy the session.",
+          },
+        },
+      },
+    },
+  )
+  .get(
+    "/:phoneNumber/is-paired",
+    async ({ params }) => {
+      const { phoneNumber } = params;
+      return { data: { paired: await isRedisAuthStatePaired(phoneNumber) } };
+    },
+    {
+      params: phoneNumberParams,
+      detail: {
+        summary: "Whether the phone number has a paired WhatsApp identity",
+        responses: {
+          200: {
+            description:
+              "Paired state read from the stored creds; false means pairing would start a fresh registration.",
           },
         },
       },

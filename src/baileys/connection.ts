@@ -75,6 +75,21 @@ export class BaileysConnectionForbiddenError extends Error {
   }
 }
 
+/**
+ * `POST /:phoneNumber/pairing-code` num número que já está pareado.
+ *
+ * Emitir um código aqui não é inofensivo: a biblioteca grava `creds.me` e o
+ * persiste via `creds.update` antes de enviar o nó, então a tentativa — mesmo
+ * falhando — deixa o estado pareado sem `:device`/`lid` e a conexão seguinte
+ * vira login passivo. O chamador deve tratar isto como conflito (409), nunca
+ * como sucesso.
+ */
+export class BaileysAlreadyPairedError extends Error {
+  constructor() {
+    super("Phone number is already paired");
+  }
+}
+
 export class BaileysConnection {
   private LOGGER_OMIT_KEYS: ReadonlyArray<string> = [
     "qr",

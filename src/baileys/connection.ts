@@ -791,6 +791,11 @@ export class BaileysConnection {
     return this.safeSocket().groupFetchAllParticipating();
   }
 
+  requestPairingCode() {
+    const phoneNumber = this.phoneNumber.replace(/\D/g, "");
+    return this.safeSocket().requestPairingCode(phoneNumber);
+  }
+
   private safeSocket() {
     if (!this.socket) {
       throw new BaileysNotConnectedError();
